@@ -1,0 +1,9 @@
+name: VanillaBosses
+version: '${project.version}'
+main: me.leonrobi.vanillabosses.VanillaBosses
+api-version: '1.20'
+folia-supported: true
+
+commands:
+  vbreload:
+    permission: vanillabosses.reload
