@@ -2,18 +2,15 @@ package me.leonrobi.vanillabosses;
 
 import com.destroystokyo.paper.event.entity.EntityAddToWorldEvent;
 import com.destroystokyo.paper.event.entity.EntityRemoveFromWorldEvent;
+import com.tcoded.folialib.FoliaLib;
 import io.papermc.paper.event.entity.EntityMoveEvent;
 import org.bukkit.*;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
-import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.block.Block;
 import org.bukkit.boss.BarColor;
 import org.bukkit.boss.BarStyle;
 import org.bukkit.boss.BossBar;
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandExecutor;
-import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -21,8 +18,10 @@ import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.entity.*;
-import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityShootBowEvent;
+import org.bukkit.event.entity.EntitySpawnEvent;
 import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ArmorMeta;
@@ -227,7 +226,9 @@ public class VanillaBosses extends JavaPlugin implements Listener {
         }
     }
 
-    private @NotNull ItemStack getItem(@NotNull ConfigurationSection section, @NotNull String path) throws GameYMLException {
+    public record RuntimeItem(ItemStack itemStack, HashMap<Enchantment, Integer> enchantments, float dropChance) {}
+
+    private @NotNull RuntimeItem getItem(@NotNull ConfigurationSection section, @NotNull String path) throws GameYMLException {
         ConfigurationSection itemSection = section.getConfigurationSection(path);
 
         if (itemSection == null) {
@@ -252,8 +253,10 @@ public class VanillaBosses extends JavaPlugin implements Listener {
 
         ItemMeta itemMeta = itemStack.getItemMeta();
 
+        float dropChance = getFloatOrDefault(itemSection, "drop-chance", 0.1F);
+
         if (itemMeta == null) {
-            return itemStack;
+            return new RuntimeItem(itemStack, null, dropChance);
         }
 
         if (itemMeta instanceof LeatherArmorMeta leatherArmorMeta) {
@@ -269,6 +272,7 @@ public class VanillaBosses extends JavaPlugin implements Listener {
             }
         }
 
+        HashMap<Enchantment, Integer> enchantmentsMap = new HashMap<>();
         ConfigurationSection enchantments = itemSection.getConfigurationSection("enchantments");
         if (enchantments != null) {
             for (String enchantmentKey : enchantments.getKeys(false)) {
@@ -279,35 +283,56 @@ public class VanillaBosses extends JavaPlugin implements Listener {
                     ));
                 }
 
-                itemMeta.addEnchant(getStaticVariable(enchantmentKey.toUpperCase(), Enchantment.class, Enchantment.class),
-                        getInt(enchantment, "lvl"),
-                        true
+                enchantmentsMap.put(getStaticVariable(enchantmentKey.toUpperCase(), Enchantment.class, Enchantment.class),
+                        getInt(enchantment, "lvl")
                 );
             }
         }
 
-        itemMeta.addAttributeModifier(Attribute.GENERIC_ARMOR, new AttributeModifier(Attribute.GENERIC_ARMOR.getKey().getKey(), 0.0,
-                AttributeModifier.Operation.ADD_NUMBER));
-        itemMeta.addAttributeModifier(Attribute.GENERIC_ARMOR_TOUGHNESS, new AttributeModifier(Attribute.GENERIC_ARMOR_TOUGHNESS.getKey().getKey(), 0.0,
-                AttributeModifier.Operation.ADD_NUMBER));
+        itemStack.setItemMeta(itemMeta);
+
+        return new RuntimeItem(itemStack, enchantmentsMap, dropChance);
+    }
+
+    public static @NotNull ItemStack createRuntimeItemStack(@NotNull RuntimeItem runtimeItem) {
+        ItemStack itemStack = runtimeItem.itemStack;
+        ItemMeta itemMeta = itemStack.getItemMeta();
+
+        if (itemMeta == null) return itemStack;
+        if (runtimeItem.enchantments == null) return itemStack;
+
+        runtimeItem.enchantments.forEach((enchantment, level) -> {
+            if (level == -1) {
+                itemMeta.addEnchant(enchantment, ThreadLocalRandom.current().nextInt(enchantment.getStartLevel(), enchantment.getMaxLevel() + 1), true);
+            } else {
+                itemMeta.addEnchant(enchantment, level, true);
+            }
+        });
 
         itemStack.setItemMeta(itemMeta);
 
         return itemStack;
     }
 
-    public record Equipment(@Nullable ItemStack helmet, @Nullable ItemStack chestplate, @Nullable ItemStack leggings, @Nullable ItemStack boots,
-                            @Nullable ItemStack mainHand, @Nullable ItemStack offHand) {
+    public record Equipment(@Nullable RuntimeItem helmet, @Nullable RuntimeItem chestplate, @Nullable RuntimeItem leggings, @Nullable RuntimeItem boots,
+                            @Nullable RuntimeItem mainHand, @Nullable RuntimeItem offHand) {
         public void putOn(@NotNull LivingEntity livingEntity) {
             EntityEquipment equipment = livingEntity.getEquipment();
             if (equipment == null) return;
 
-            if (helmet != null) equipment.setHelmet(new ItemStack(helmet));
-            if (chestplate != null) equipment.setChestplate(new ItemStack(chestplate));
-            if (leggings != null) equipment.setLeggings(new ItemStack(leggings));
-            if (boots != null) equipment.setBoots(new ItemStack(boots));
-            if (mainHand != null) equipment.setItemInMainHand(new ItemStack(mainHand));
-            if (offHand != null) equipment.setItemInOffHand(new ItemStack(offHand));
+            if (helmet != null) equipment.setHelmet(VanillaBosses.createRuntimeItemStack(helmet));
+            if (chestplate != null) equipment.setChestplate(VanillaBosses.createRuntimeItemStack(chestplate));
+            if (leggings != null) equipment.setLeggings(VanillaBosses.createRuntimeItemStack(leggings));
+            if (boots != null) equipment.setBoots(VanillaBosses.createRuntimeItemStack(boots));
+            if (mainHand != null) equipment.setItemInMainHand(VanillaBosses.createRuntimeItemStack(mainHand));
+            if (offHand != null) equipment.setItemInOffHand(VanillaBosses.createRuntimeItemStack(offHand));
+
+            if (helmet != null) equipment.setHelmetDropChance(helmet.dropChance);
+            if (chestplate != null) equipment.setChestplateDropChance(chestplate.dropChance);
+            if (leggings != null) equipment.setLeggingsDropChance(leggings.dropChance);
+            if (boots != null) equipment.setBootsDropChance(boots.dropChance);
+            if (mainHand != null) equipment.setItemInMainHandDropChance(mainHand.dropChance);
+            if (offHand != null) equipment.setItemInOffHandDropChance(offHand.dropChance);
         }
     }
 
@@ -414,8 +439,8 @@ public class VanillaBosses extends JavaPlugin implements Listener {
         }
     }
 
-    private @Nullable ItemStack getItemOrDefault(@NotNull ConfigurationSection section,
-                                                 @NotNull String path, ItemStack def) throws GameYMLException {
+    private @Nullable RuntimeItem getItemOrDefault(@NotNull ConfigurationSection section,
+                                                 @NotNull String path, RuntimeItem def) throws GameYMLException {
         try {
             return getItem(section, path);
         } catch (GameYMLNotFoundException e) {
@@ -449,13 +474,28 @@ public class VanillaBosses extends JavaPlugin implements Listener {
 
     private static int BOSS_BLOCK_RADIUS;
     private static Material BOSS_BLOCK;
+    private static boolean BOSS_BLOCK_RANDOM;
     private static boolean BOSS_BLOCK_ENABLED;
     private static int BOSS_BLOCK_RADIUS_Y;
 
     private FileConfiguration config = this.getConfig();
+    private FoliaLib foliaLib;
+
+    private List<Material> randomBlocks;
 
     @Override
     public void onEnable() {
+        this.foliaLib = new FoliaLib(this);
+        randomBlocks = new ArrayList<>();
+
+        for (Material material : Material.values()) {
+            if (material.isBlock() && material.isSolid()) {
+                randomBlocks.add(material);
+            }
+        }
+
+        this.foliaLib.getImpl().runTimer(() -> bossBars.forEach((le, kBossBar) -> fixNearbyPlayers(kBossBar.bossBar, le, true)), 20L, 20L);
+
         config.addDefault("boss-block-enabled", true);
         config.addDefault("boss-block", "NETHERRACK");
         config.addDefault("boss-block-radius", 4);
@@ -477,6 +517,7 @@ public class VanillaBosses extends JavaPlugin implements Listener {
         config.addDefault("withered-skeleton.equipment.helmet.enchantments.THORNS.lvl", 1);
 
         config.addDefault("fire-skeleton.equipment.chestplate.item", "LEATHER_CHESTPLATE");
+        config.addDefault("fire-skeleton.equipment.chestplate.drop-chance", 0.2F);
         config.addDefault("fire-skeleton.equipment.chestplate.dye-color", 0xFF0000);
         config.addDefault("fire-skeleton.equipment.chestplate.enchantments.PROTECTION_ENVIRONMENTAL.lvl", 1);
         config.addDefault("fire-skeleton.equipment.main-hand.item", "BOW");
@@ -547,7 +588,13 @@ public class VanillaBosses extends JavaPlugin implements Listener {
         BOSS_BAR_RADIUS = getInt(config, "boss-bar-radius");
 
         BOSS_BLOCK_ENABLED = getBoolean(config, "boss-block-enabled");
-        BOSS_BLOCK = getEnum(config, Material.class, "boss-block");
+        if (getString(config, "boss-block").equalsIgnoreCase("RANDOM")) {
+            BOSS_BLOCK = Material.AIR;
+            BOSS_BLOCK_RANDOM = true;
+        } else {
+            BOSS_BLOCK = getEnum(config, Material.class, "boss-block");
+            BOSS_BLOCK_RANDOM = false;
+        }
         BOSS_BLOCK_RADIUS = getInt(config, "boss-block-radius");
         BOSS_BLOCK_RADIUS_Y = getInt(config, "boss-block-radius-y");
     }
@@ -579,15 +626,13 @@ public class VanillaBosses extends JavaPlugin implements Listener {
                     if (x * x + z * z <= radius * radius) {
                         for (int y = entityY - BOSS_BLOCK_RADIUS_Y; y < entityY + BOSS_BLOCK_RADIUS_Y; y++) {
                             Block currentBlock = livingEntity.getLocation().getWorld().getBlockAt(entityLocation.getBlockX() + x, y, entityLocation.getBlockZ() + z);
-                            Block blockAbove = currentBlock.getRelative(0, 1, 0);
 
-                            if (blockAbove.getType() == Material.AIR) {
-                                if (currentBlock.getType().isSolid()) {
-                                    currentBlock.setType(BOSS_BLOCK);
+                            if (!currentBlock.getType().isAir() && currentBlock.getType() != Material.LIGHT) {
+                                if (BOSS_BLOCK_RANDOM) {
+                                    currentBlock.setType(randomBlocks.get(ThreadLocalRandom.current().nextInt(randomBlocks.size())), false);
                                 } else {
-                                    continue;
+                                    currentBlock.setType(BOSS_BLOCK, false);
                                 }
-                                break;
                             }
                         }
                     }
@@ -668,14 +713,15 @@ public class VanillaBosses extends JavaPlugin implements Listener {
             }
         }
 
+        if (event.getTo().getBlockX() == event.getFrom().getBlockX() &&
+                event.getTo().getBlockY() == event.getFrom().getBlockY() &&
+                event.getTo().getBlockZ() == event.getFrom().getBlockZ()) {
+            return;
+        }
+
         if (getType(entity) != null) {
             bossBlocks(entity);
         }
-    }
-
-    @EventHandler
-    public void onPlayerMove(@NotNull PlayerMoveEvent event) {
-        bossBars.forEach((le, kBossBar) -> fixNearbyPlayers(kBossBar.bossBar, le, true));
     }
 
     public @Nullable BossType getType(@NotNull LivingEntity livingEntity) {
@@ -706,12 +752,14 @@ public class VanillaBosses extends JavaPlugin implements Listener {
         HashSet<Player> nearby = new HashSet<>();
 
         if (add) {
-            for (Entity e : livingEntity.getNearbyEntities(BOSS_BAR_RADIUS, BOSS_BAR_RADIUS, BOSS_BAR_RADIUS)) {
-                if (e instanceof Player p) {
-                    nearby.add(p);
-                    bossBar.addPlayer(p);
+            foliaLib.getImpl().runAtEntity(livingEntity, wrappedTask -> {
+                for (Entity e : livingEntity.getNearbyEntities(BOSS_BAR_RADIUS, BOSS_BAR_RADIUS, BOSS_BAR_RADIUS)) {
+                    if (e instanceof Player p) {
+                        nearby.add(p);
+                        bossBar.addPlayer(p);
+                    }
                 }
-            }
+            });
         }
 
         ArrayList<? extends Player> online = new ArrayList<>(Bukkit.getOnlinePlayers().stream().toList());

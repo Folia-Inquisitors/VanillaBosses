@@ -30,13 +30,21 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
-        <version>3.2.4</version>
+        <version>3.5.3</version>
         <executions>
           <execution>
             <phase>package</phase>
             <goals>
               <goal>shade</goal>
             </goals>
+            <configuration>
+                <relocations>
+                    <relocation>
+                        <pattern>com.tcoded.folialib</pattern>
+                        <shadedPattern>me.leonrobi.folialib</shadedPattern>
+                    </relocation>
+                </relocations>
+            </configuration>
           </execution>
         </executions>
       </plugin>
@@ -58,6 +66,10 @@
           <id>sonatype</id>
           <url>https://oss.sonatype.org/content/groups/public/</url>
       </repository>
+      <repository>
+          <id>devmart-other</id>
+          <url>https://nexuslite.gcnt.net/repos/other/</url>
+      </repository>
   </repositories>
 
   <dependencies>
@@ -66,6 +78,12 @@
           <artifactId>paper-api</artifactId>
           <version>1.20.4-R0.1-SNAPSHOT</version>
           <scope>provided</scope>
+      </dependency>
+      <dependency>
+          <groupId>com.tcoded</groupId>
+          <artifactId>FoliaLib</artifactId>
+          <version>0.3.1</version>
+          <scope>compile</scope>
       </dependency>
   </dependencies>
 </project>
