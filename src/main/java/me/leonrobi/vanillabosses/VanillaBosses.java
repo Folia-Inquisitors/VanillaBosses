@@ -514,14 +514,11 @@ public class VanillaBosses extends JavaPlugin implements Listener {
         config.addDefault("phantom.extra-speed", 0.3);
 
         config.addDefault("withered-skeleton.equipment.helmet.item", "DIAMOND_HELMET");
-        config.addDefault("withered-skeleton.equipment.helmet.enchantments.THORNS.lvl", 1);
 
         config.addDefault("fire-skeleton.equipment.chestplate.item", "LEATHER_CHESTPLATE");
         config.addDefault("fire-skeleton.equipment.chestplate.drop-chance", 0.2F);
         config.addDefault("fire-skeleton.equipment.chestplate.dye-color", 0xFF0000);
-        config.addDefault("fire-skeleton.equipment.chestplate.enchantments.PROTECTION_ENVIRONMENTAL.lvl", 1);
         config.addDefault("fire-skeleton.equipment.main-hand.item", "BOW");
-        config.addDefault("fire-skeleton.equipment.main-hand.enchantments.ARROW_FIRE.lvl", 1);
 
         config.addDefault("super-creeper.particle", "ELECTRIC_SPARK");
         config.addDefault("super-creeper.particle-amount", 10);
